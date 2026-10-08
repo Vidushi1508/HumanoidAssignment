@@ -1,0 +1,21 @@
+take,card,pair,direction,human,robot,object,human_chair,hand_height,speed,hesitation,notes,start,end,giver_onset,receiver_onset,contact,release
+A2,1,1,human_to_robot,p1,p2,bottle,near,mid,normal,no,,715,835,740,745,758,784
+A2,2,1,robot_to_human,p1,p2,bottle,near,mid,normal,no,,1016,1202,1025,1033,1046,1074
+A2,3,2,human_to_robot,p1,p2,bottle,near,high,normal,no,,1384,1488,1409,1413,1421,1443
+A2,4,2,robot_to_human,p1,p2,bottle,near,high,normal,no,,1728,1864,1770,1776,1785,1807
+A2,5,3,human_to_robot,p1,p2,bottle,near,low,quick,no,,2062,2171,2074,2079,2090,2111
+A2,6,3,robot_to_human,p1,p2,bottle,near,low,normal,no,,2339,2430,2342,2348,2361,2383
+A2,7,4,human_to_robot,p1,p2,bottle,near,low,normal,yes,hesitation not performed,3257,3382,3294,3297,3320,3349
+A2,8,4,robot_to_human,p1,p2,bottle,near,low,normal,no,,3583,3684,3587,3596,3618,3643
+A2,9,5,human_to_robot,p1,p2,bottle,mid,low,slow,no,,3866,3953,3874,3875,3887,3909
+A2,10,5,robot_to_human,p1,p2,bottle,mid,low,normal,no,,4118,4239,4133,4128,4153,4178
+A2,11,6,human_to_robot,p1,p2,bottle,mid,high,normal,no,,4415,4557,4431,4436,4454,4480
+A2,12,6,robot_to_human,p1,p2,bottle,mid,high,normal,no,,4747,4872,4751,4757,4785,4812
+A2,13,7,human_to_robot,p1,p2,bottle,mid,mid,quick,no,,5049,5164,5057,5062,5082,5116
+A2,14,7,robot_to_human,p1,p2,bottle,mid,mid,normal,no,,5345,5538,5354,5361,5386,5414
+A2,15,8,human_to_robot,p1,p2,bottle,far,mid,normal,no,,6286,6410,6322,6330,6344,6365
+A2,16,8,robot_to_human,p1,p2,bottle,far,mid,normal,no,,6591,6699,6595,6602,6613,6636
+A2,17,9,human_to_robot,p1,p2,bottle,far,high,slow,no,,6889,7049,6901,6902,6933,6969
+A2,18,9,robot_to_human,p1,p2,bottle,far,high,normal,no,,7309,7456,7319,7317,7340,7368
+A2,19,10,human_to_robot,p1,p2,bottle,far,low,normal,no,,7653,7758,7657,7658,7684,7714
+A2,20,10,robot_to_human,p1,p2,bottle,far,low,normal,no,,7948,8046,7950,7952,7964,7989

@@ -1,0 +1,21 @@
+take,card,pair,direction,human,robot,object,human_chair,hand_height,speed,hesitation,notes,start,end,giver_onset,receiver_onset,contact,release
+B1,1,1,human_to_robot,p2,p1,mug,near,mid,slow,no,,1110,1383,1210,1217,1249,1287
+B1,2,1,robot_to_human,p2,p1,mug,near,mid,normal,no,,1668,1922,1769,1779,1802,1828
+B1,3,2,human_to_robot,p2,p1,mug,near,high,quick,no,,2123,2301,2158,2164,2172,2216
+B1,4,2,robot_to_human,p2,p1,mug,near,high,normal,no,,2456,2644,2545,2551,2563,2600
+B1,5,3,human_to_robot,p2,p1,mug,near,low,normal,no,,2902,3081,2934,2944,2955,2980
+B1,6,3,robot_to_human,p2,p1,mug,near,low,normal,no,,3280,3523,3384,3395,3415,3457
+B1,7,4,human_to_robot,p2,p1,mug,mid,low,normal,no,,3972,4144,4012,4023,4042,4069
+B1,8,4,robot_to_human,p2,p1,mug,mid,low,normal,no,,4353,4547,4427,4441,4458,4488
+B1,9,5,human_to_robot,p2,p1,mug,mid,mid,normal,no,extra hesitation (added after A takes),4759,4984,4763,4772,4834,4861
+B1,10,5,robot_to_human,p2,p1,mug,mid,mid,normal,no,,5233,5442,5294,5306,5328,5353
+B1,11,6,human_to_robot,p2,p1,mug,mid,high,slow,no,,5635,5830,5695,5701,5738,5778
+B1,12,6,robot_to_human,p2,p1,mug,mid,high,normal,no,,6084,6298,6170,6182,6206,6233
+B1,13,7,human_to_robot,p2,p1,mug,far,low,normal,no,,7053,7236,7066,7077,7098,7132
+B1,14,7,robot_to_human,p2,p1,mug,far,low,normal,no,,7424,7605,7454,7468,7502,7539
+B1,15,8,human_to_robot,p2,p1,mug,far,mid,quick,no,,7796,7954,7853,7856,7871,7904
+B1,16,8,robot_to_human,p2,p1,mug,far,mid,normal,no,,8148,8376,8242,8251,8277,8305
+B1,17,9,human_to_robot,p2,p1,mug,far,high,normal,yes,,8595,8781,8658,8663,8715,8753
+B1,18,9,robot_to_human,p2,p1,mug,far,high,normal,no,,8999,9288,9093,9112,9137,9160
+B1,19,10,human_to_robot,p2,p1,mug,far,high,normal,no,,9476,9628,9523,9528,9549,9577
+B1,20,10,robot_to_human,p2,p1,mug,far,high,normal,no,,9794,10023,9897,9914,9938,9964

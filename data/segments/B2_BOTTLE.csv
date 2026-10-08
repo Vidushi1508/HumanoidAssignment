@@ -1,0 +1,21 @@
+take,card,pair,direction,human,robot,object,human_chair,hand_height,speed,hesitation,notes,start,end,giver_onset,receiver_onset,contact,release
+B2,1,1,human_to_robot,p2,p1,bottle,near,mid,normal,no,extra hesitation (added after A takes),827,1026,886,892,952,983
+B2,2,1,robot_to_human,p2,p1,bottle,near,mid,normal,no,,1239,1439,1291,1306,1322,1343
+B2,3,2,human_to_robot,p2,p1,bottle,near,high,quick,no,,1610,1784,1639,1648,1662,1712
+B2,4,2,robot_to_human,p2,p1,bottle,near,high,normal,no,,1917,2152,2025,2040,2053,2091
+B2,5,3,human_to_robot,p2,p1,bottle,near,low,normal,no,,2309,2471,2379,2384,2403,2430
+B2,6,3,robot_to_human,p2,p1,bottle,near,low,normal,no,,2642,2851,2728,2739,2753,2778
+B2,7,4,human_to_robot,p2,p1,bottle,far,low,normal,no,,3478,3669,3525,3535,3555,3589
+B2,8,4,robot_to_human,p2,p1,bottle,far,low,normal,no,,3888,4078,3960,3969,3992,4018
+B2,9,5,human_to_robot,p2,p1,bottle,far,mid,quick,no,,4280,4423,4301,4310,4324,4358
+B2,10,5,robot_to_human,p2,p1,bottle,far,mid,normal,no,,4577,4787,4641,4655,4680,4710
+B2,11,6,human_to_robot,p2,p1,bottle,far,high,normal,yes,,5000,5208,5035,5045,5110,5149
+B2,12,6,robot_to_human,p2,p1,bottle,far,high,normal,no,,5408,5613,5476,5486,5514,5543
+B2,13,7,human_to_robot,p2,p1,bottle,far,high,normal,no,,5836,6027,5864,5871,5893,5942
+B2,14,7,robot_to_human,p2,p1,bottle,far,high,normal,no,,6183,6384,6257,6263,6287,6318
+B2,15,8,human_to_robot,p2,p1,bottle,mid,low,normal,no,,6954,7131,7008,7016,7033,7058
+B2,16,8,robot_to_human,p2,p1,bottle,mid,low,normal,no,,7362,7537,7439,7447,7467,7489
+B2,17,9,human_to_robot,p2,p1,bottle,mid,high,slow,no,,7696,7913,7730,7744,7765,7826
+B2,18,9,robot_to_human,p2,p1,bottle,mid,high,normal,no,,8093,8277,8167,8174,8194,8219
+B2,19,10,human_to_robot,p2,p1,bottle,mid,mid,slow,no,,8448,8640,8501,8511,8536,8571
+B2,20,10,robot_to_human,p2,p1,bottle,mid,mid,normal,no,,8826,9034,8893,8904,8925,8946

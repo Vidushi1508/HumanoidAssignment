@@ -105,12 +105,12 @@ def write_csv(rows, path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--work", default="/mnt/d/Humanoid/work")
+    ap.add_argument("--data", default="data")
     ap.add_argument("--sheet", default="data/take_sheet.csv")
     ap.add_argument("--out", default="results")
     args = ap.parse_args()
 
-    handovers = load(args.work, args.sheet)
+    handovers = load(args.data, args.sheet)
     Path(args.out).mkdir(exist_ok=True)
     all_points, all_traj = [], []
     for name in SPLITS:

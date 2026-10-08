@@ -1,12 +1,17 @@
+import argparse
 import csv
 import json
 from pathlib import Path
 
+import matplotlib
 import numpy as np
 
 from handover.calibrate import robot_origin, to_metres
 from handover.segment import MIN_VIS, WRIST, wrist_track
 from handover.track import HUMAN, ROBOT
+
+matplotlib.use("Agg")
+import matplotlib.pyplot as plt
 
 TAKES = ["A1_MUG", "A2_BOTTLE", "A3_BOX", "B1_MUG", "B2_BOTTLE", "B3_BOX"]
 SPLITS = {
@@ -67,3 +72,44 @@ def load(work_dir, sheet_path, direction="human_to_robot"):
 def split(handovers, name):
     train, test = SPLITS[name]
     return [h for h in handovers if h["take"] in train], [h for h in handovers if h["take"] in test]
+
+
+def plot(data_dir, sheet_path, out):
+    colours = {"low": "C0", "mid": "C1", "high": "C3"}
+    fig, axes = plt.subplots(2, 2, figsize=(12, 8), sharex=True, sharey=True)
+    for col, direction in enumerate(["human_to_robot", "robot_to_human"]):
+        for h in load(data_dir, sheet_path, direction):
+            ax = axes[0 if h["take"].startswith("A") else 1, col]
+            reach = h["giver"][h["onset"]:h["contact"] + 1]
+            ax.plot(*reach.T, color=colours[h["hand_height"]], lw=1)
+            ax.plot(*reach[-1], "ko", ms=3)
+    titles = ["session A: human p1 gives", "session A: robot role p2 gives",
+              "session B: human p2 gives", "session B: robot role p1 gives"]
+    for ax, title in zip(axes.flat, titles):
+        ax.plot(0, 0, "k^", ms=10)
+        ax.set_title(title, fontsize=10)
+        ax.set_aspect("equal")
+        ax.grid()
+    for ax in axes[1]:
+        ax.set_xlabel("x toward human (m)")
+    for ax in axes[:, 0]:
+        ax.set_ylabel("y up (m)")
+    for height, colour in colours.items():
+        axes[0, 0].plot([], [], color=colour, label=f"{height} hand height")
+    axes[0, 0].legend(fontsize=8)
+    fig.suptitle("all 120 reaches, giver's wrist from reach onset to contact (dot); origin = robot-role shoulder")
+    fig.tight_layout()
+    fig.savefig(out, dpi=80)
+
+
+def main():
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--data", default="data")
+    ap.add_argument("--sheet", default="data/take_sheet.csv")
+    ap.add_argument("--plot", default="results/reaches.png")
+    args = ap.parse_args()
+    plot(args.data, args.sheet, args.plot)
+
+
+if __name__ == "__main__":
+    main()

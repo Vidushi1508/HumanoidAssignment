@@ -18,12 +18,20 @@ IK_DAMPING = 0.1
 MAX_JOINT_STEP = 0.05
 ORIENTATION_WEIGHT = 0.3
 RETRACT_SPEED = 0.4
-GRIPPER_OPEN, GRIPPER_CLOSED = 255, 0
+FINGER_REACH_M = 0.1034
+BOX_HALF = [0.04, 0.03, 0.04]
+GRIPPER_OPEN, GRIPPER_CLOSED = 255, round(255 * BOX_HALF[1] / 0.04)
 GIF_METHODS = ["reactive", "world_model_target", "learned_policy", "human_path"]
 TARGET_R = np.array([[0, 0, 1], [0, 1, 0], [-1, 0, 0]], float)
 
 
-def build_model(menagerie):
+def hand_geometry(offset):
+    reach = SCALE * np.array([offset[0], 0.0, offset[1]])
+    direction = reach / np.linalg.norm(reach)
+    return reach - FINGER_REACH_M * direction, direction
+
+
+def build_model(menagerie, offset):
     spec = mujoco.MjSpec.from_file(str(Path(menagerie) / "franka_emika_panda" / "panda.xml"))
     spec.add_texture(name="sky", type=mujoco.mjtTexture.mjTEXTURE_SKYBOX, builtin=mujoco.mjtBuiltin.mjBUILTIN_GRADIENT,
                      rgb1=[1, 1, 1], rgb2=[0.75, 0.8, 0.88], width=256, height=256)
@@ -34,13 +42,14 @@ def build_model(menagerie):
     world.add_geom(type=mujoco.mjtGeom.mjGEOM_CYLINDER, size=[0.09, BASE_Z / 2, 0], pos=[0, 0, BASE_Z / 2],
                    rgba=[0.3, 0.3, 0.3, 1], contype=0, conaffinity=0)
     world.add_camera(name="side", pos=[0.65, -2.0, 0.95], xyaxes=[1, 0, 0, 0, 0, 1], fovy=45)
-    spec.body("hand").add_site(name="grasp", pos=[0, 0, 0.1034], size=[0.01, 0, 0], rgba=[1, 0, 0, 0])
+    spec.body("hand").add_site(name="wrist", size=[0.01, 0, 0], rgba=[1, 0, 0, 0])
+    spec.body("hand").add_site(name="fingertips", pos=[0, 0, FINGER_REACH_M], size=[0.01, 0, 0], rgba=[1, 0, 0, 0])
+    box_from_wrist, direction = hand_geometry(offset)
     hand = world.add_body(name="human_hand", mocap=True)
-    hand.add_geom(type=mujoco.mjtGeom.mjGEOM_SPHERE, size=[0.045, 0, 0], rgba=[0.85, 0.6, 0.45, 1],
-                  contype=0, conaffinity=0)
+    hand.add_geom(type=mujoco.mjtGeom.mjGEOM_CAPSULE, size=[0.025, 0, 0], rgba=[0.85, 0.6, 0.45, 1],
+                  fromto=[0, 0, 0, *(box_from_wrist - BOX_HALF[0] * direction)], contype=0, conaffinity=0)
     box = world.add_body(name="object", mocap=True)
-    box.add_geom(type=mujoco.mjtGeom.mjGEOM_BOX, size=[0.04, 0.05, 0.04], rgba=[0.2, 0.45, 0.9, 1],
-                 contype=0, conaffinity=0)
+    box.add_geom(type=mujoco.mjtGeom.mjGEOM_BOX, size=BOX_HALF, rgba=[0.2, 0.45, 0.9, 1], contype=0, conaffinity=0)
     return spec.compile()
 
 
@@ -49,7 +58,8 @@ class Sim:
         self.m = model
         self.d = mujoco.MjData(model)
         self.m.opt.timestep = 1 / (30 * SUBSTEPS)
-        self.site = model.site("grasp").id
+        self.site = model.site("wrist").id
+        self.tip = model.site("fingertips").id
         self.hand_mocap = model.body("human_hand").mocapid[0]
         self.box_mocap = model.body("object").mocapid[0]
         self.home = model.key("home").qpos.copy()
@@ -97,6 +107,7 @@ def run(sim, controller, h, offset, renderer=None):
     controller.reset(h)
     target = start.copy()
     giver = h["giver_raw"]
+    box_from_wrist, _ = hand_geometry(offset)
     held_at, frames, site_path = None, [], []
     for t in range(len(giver)):
         d.mocap_pos[sim.hand_mocap] = sim.to_world(giver[t])
@@ -106,14 +117,15 @@ def run(sim, controller, h, offset, renderer=None):
         pos = sim.to_human(site)
         if held_at is None:
             vel, grasp = controller.step(h, t, pos)
-            box = sim.to_world(giver[t] + offset / 2)
+            box = sim.to_world(giver[t]) + box_from_wrist
             reach = np.linalg.norm(site - sim.to_world(giver[t] + offset))
             if grasp and reach < SCALE * policy.GRASP_DIST:
                 held_at = t
+                held = box - d.site_xpos[sim.tip]
                 d.ctrl[7] = GRIPPER_CLOSED
             target = target + SCALE * np.array([vel[0], 0.0, vel[1]]) / h["fps"]
         else:
-            box = site
+            box = d.site_xpos[sim.tip] + held
             back = start - target
             step = RETRACT_SPEED / h["fps"]
             target = target + (back if np.linalg.norm(back) < step else step * back / np.linalg.norm(back))
@@ -155,16 +167,16 @@ def save_gif(grid_frames, path, every=2):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--work", default="/mnt/d/Humanoid/work")
+    ap.add_argument("--data", default="data")
     ap.add_argument("--sheet", default="data/take_sheet.csv")
-    ap.add_argument("--menagerie", default="/mnt/d/Humanoid/tools/mujoco_menagerie")
+    ap.add_argument("--menagerie", default="mujoco_menagerie")
     ap.add_argument("--out", default="results")
     ap.add_argument("--seeds", type=int, nargs="+", default=policy.SEEDS)
     ap.add_argument("--gif", nargs="*", default=[], help="TAKE:CARD handovers to render, e.g. B3:5")
     ap.add_argument("--media", default="media")
     args = ap.parse_args()
 
-    handovers = load(args.work, args.sheet)
+    handovers = load(args.data, args.sheet)
     train_set, test_set = split(handovers, "main")
     horizon = round(ev.HORIZON_S * handovers[0]["fps"])
     offset = policy.grasp_offset(train_set)
@@ -172,7 +184,7 @@ def main():
     def human_path(h, t):
         return h["receiver"][min(t + 3, len(h["receiver"]) - 1)] - offset
 
-    sim = Sim(build_model(args.menagerie))
+    sim = Sim(build_model(args.menagerie, offset))
     rows, first = [], None
     for seed in args.seeds:
         controllers = policy.build_controllers(train_set, seed, horizon)

@@ -1,0 +1,21 @@
+take,card,pair,direction,human,robot,object,human_chair,hand_height,speed,hesitation,notes,start,end,giver_onset,receiver_onset,contact,release
+A3,1,1,human_to_robot,p1,p2,box,near,mid,quick,no,,809,980,883,887,899,924
+A3,2,1,robot_to_human,p1,p2,box,near,mid,normal,no,,1162,1301,1203,1207,1220,1241
+A3,3,2,human_to_robot,p1,p2,box,near,low,normal,no,,1499,1642,1547,1551,1560,1578
+A3,4,2,robot_to_human,p1,p2,box,near,low,normal,no,,1815,1966,1846,1856,1868,1884
+A3,5,3,human_to_robot,p1,p2,box,near,high,normal,no,,2133,2314,2206,2212,2224,2251
+A3,6,3,robot_to_human,p1,p2,box,near,high,normal,no,,2528,2684,2572,2576,2591,2612
+A3,7,4,human_to_robot,p1,p2,box,mid,mid,normal,no,,3174,3324,3239,3244,3256,3278
+A3,8,4,robot_to_human,p1,p2,box,mid,mid,normal,no,,3505,3645,3545,3552,3567,3588
+A3,9,5,human_to_robot,p1,p2,box,mid,low,slow,no,,3808,4021,3902,3910,3923,3949
+A3,10,5,robot_to_human,p1,p2,box,mid,low,normal,no,,4191,4336,4233,4241,4253,4276
+A3,11,6,human_to_robot,p1,p2,box,mid,high,normal,no,,4483,4662,4565,4576,4588,4612
+A3,12,6,robot_to_human,p1,p2,box,mid,high,normal,no,,4855,4983,4871,4880,4892,4913
+A3,13,7,human_to_robot,p1,p2,box,far,mid,normal,no,,5798,5965,5854,5857,5888,5922
+A3,14,7,robot_to_human,p1,p2,box,far,mid,normal,no,,6204,6330,6216,6229,6246,6280
+A3,15,8,human_to_robot,p1,p2,box,far,low,slow,no,hesitation performed here instead of card 17,6567,6743,6614,6619,6690,6719
+A3,16,8,robot_to_human,p1,p2,box,far,low,normal,no,,6943,7077,6965,6969,6986,7008
+A3,17,9,human_to_robot,p1,p2,box,far,high,normal,yes,hesitation not performed (done on card 15),7298,7436,7336,7343,7352,7374
+A3,18,9,robot_to_human,p1,p2,box,far,high,normal,no,,7621,7763,7637,7630,7659,7683
+A3,19,10,human_to_robot,p1,p2,box,far,high,quick,no,,7981,8163,8020,8026,8067,8102
+A3,20,10,robot_to_human,p1,p2,box,far,high,normal,no,,8391,8552,8413,8419,8437,8466

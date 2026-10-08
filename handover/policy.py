@@ -225,14 +225,14 @@ def plot(test_set, paths, out):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--work", default="/mnt/d/Humanoid/work")
+    ap.add_argument("--data", default="data")
     ap.add_argument("--sheet", default="data/take_sheet.csv")
     ap.add_argument("--out", default="results")
     ap.add_argument("--plot", help="png with example rollouts from the main split (seed 0)")
     args = ap.parse_args()
 
     torch.set_num_threads(4)
-    handovers = load(args.work, args.sheet)
+    handovers = load(args.data, args.sheet)
     horizon = round(ev.HORIZON_S * handovers[0]["fps"])
     Path(args.out).mkdir(exist_ok=True)
     all_rows = []

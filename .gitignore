@@ -1,8 +1,10 @@
-# videos and large intermediates (raw data lives in D:\Humanoid\raw and \work)
+# raw recordings and intermediates live outside the repo
 *.mp4
 *.mov
 *.MOV
 *.npz
+!data/videos/*.mp4
+!data/*_pose.npz
 
 # python
 __pycache__/
@@ -14,3 +16,6 @@ venv/
 .vscode/
 *.Zone.Identifier
 Thumbs.db
+
+# external model repo, cloned separately (see README)
+mujoco_menagerie

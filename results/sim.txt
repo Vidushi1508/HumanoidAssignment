@@ -1,0 +1,7 @@
+Panda receiving from replayed human hands: 20 test handovers (A3, B3), seeds [0, 1, 2, 3, 4]
+method                    success                   grasp - contact s  path length m  rms jerk m/s3
+reactive                      65% (seeds 65%-65%)              +0.05           0.83           26.1
+world_model_target            88% (seeds 75%-100%)              +0.34           0.72           24.5
+learned_policy                48% (seeds 30%-65%)              +0.41           0.61           11.1
+learned_policy_noise          27% (seeds 10%-45%)              +0.48           0.73           10.6
+human_path                    80% (seeds 80%-80%)              +0.36           0.60           12.7
