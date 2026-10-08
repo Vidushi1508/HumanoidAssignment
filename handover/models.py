@@ -95,3 +95,21 @@ class WorldModel(nn.Module):
         point = y[..., 2 * self.horizon:2 * self.horizon + 2]
         ttc = nn.functional.softplus(y[..., -1])
         return traj, point, ttc
+
+
+def policy_features(giver, receiver, fps):
+    gv = np.vstack([np.zeros((1, 2)), np.diff(giver, axis=0)]) * fps
+    rv = np.vstack([np.zeros((1, 2)), np.diff(receiver, axis=0)]) * fps
+    return np.hstack([giver, gv, receiver, rv]).astype(np.float32)
+
+
+class Policy(nn.Module):
+    def __init__(self, hidden=64):
+        super().__init__()
+        self.gru = nn.GRU(8, hidden, batch_first=True)
+        self.head = nn.Linear(hidden, 3)
+
+    def forward(self, x, state=None):
+        out, state = self.gru(x, state)
+        y = self.head(out)
+        return y[..., :2], y[..., 2], state
