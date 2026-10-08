@@ -1,0 +1,16 @@
+# videos and large intermediates (raw data lives in D:\Humanoid\raw and \work)
+*.mp4
+*.mov
+*.MOV
+*.npz
+
+# python
+__pycache__/
+*.pyc
+venv/
+.venv/
+
+# editors / OS
+.vscode/
+*.Zone.Identifier
+Thumbs.db
