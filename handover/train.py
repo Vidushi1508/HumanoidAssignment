@@ -6,7 +6,7 @@ import torch
 
 from handover import evaluate as ev
 from handover.dataset import SPLITS, load, split
-from handover.models import WorldModel, features
+from handover.models import DEVICE, WorldModel, features
 
 SEEDS = [0, 1, 2, 3, 4]
 EPOCHS = 400
@@ -41,9 +41,9 @@ def batch(handovers, horizon):
 
 def train(handovers, seed, horizon):
     torch.manual_seed(seed)
-    model = WorldModel(HIDDEN, horizon)
+    model = WorldModel(HIDDEN, horizon).to(DEVICE)
     opt = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
-    X, Y_traj, Y_point, Y_ttc, M = batch(handovers, horizon)
+    X, Y_traj, Y_point, Y_ttc, M = (a.to(DEVICE) for a in batch(handovers, horizon))
     for _ in range(EPOCHS):
         traj, point, ttc = model(X)
         loss = (((traj - Y_traj) ** 2).sum(-1).mean(-1)[M].mean()
@@ -52,7 +52,7 @@ def train(handovers, seed, horizon):
         opt.zero_grad()
         loss.backward()
         opt.step()
-    return model.eval()
+    return model.cpu().eval()
 
 
 def predictor(model):

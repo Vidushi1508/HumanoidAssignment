@@ -1,0 +1,10 @@
+== split: main (test A3, B3); robot-role giver, 20 test handovers; true hold 0.87 s (range 0.53-1.27)
+method                  mean abs error s  early by >0.1 s  late by >0.1 s
+release at contact                  0.87             100%              0%
+mean training hold                  0.16              20%             45%
+gru                                 0.10              16%             25%
+== split: cross_person (test B1, B2, B3); robot-role giver, 30 test handovers; true hold 0.95 s (range 0.70-1.40)
+method                  mean abs error s  early by >0.1 s  late by >0.1 s
+release at contact                  0.95             100%              0%
+mean training hold                  0.15              47%             10%
+gru                                 0.18              43%              7%

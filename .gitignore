@@ -19,3 +19,6 @@ Thumbs.db
 
 # external model repo, cloned separately (see README)
 mujoco_menagerie
+
+# simulator warning log
+MUJOCO_LOG.TXT

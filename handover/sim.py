@@ -3,6 +3,7 @@ from pathlib import Path
 
 import mujoco
 import numpy as np
+import torch
 from PIL import Image, ImageDraw
 
 from handover import evaluate as ev
@@ -15,9 +16,10 @@ SCALE = 0.85 * PANDA_REACH_M / HUMAN_ARM_M
 BASE_Z = 0.6
 SUBSTEPS = 16
 IK_DAMPING = 0.1
-MAX_JOINT_STEP = 0.05
+MAX_JOINT_STEP = 0.07
 ORIENTATION_WEIGHT = 0.3
 RETRACT_SPEED = 0.4
+MAX_LEAD_M = 0.1
 FINGER_REACH_M = 0.1034
 BOX_HALF = [0.04, 0.03, 0.04]
 GRIPPER_OPEN, GRIPPER_CLOSED = 255, round(255 * BOX_HALF[1] / 0.04)
@@ -152,6 +154,12 @@ def run(sim, controller, h, offset, renderer=None):
     return result, frames
 
 
+def lead(target, wrist):
+    ahead = target - wrist
+    distance = np.linalg.norm(ahead)
+    return target if distance <= MAX_LEAD_M else wrist + ahead * MAX_LEAD_M / distance
+
+
 def label(frame, text):
     img = Image.fromarray(frame)
     draw = ImageDraw.Draw(img)
@@ -165,6 +173,12 @@ def save_gif(grid_frames, path, every=2):
     images[0].save(path, save_all=True, append_images=images[1:], duration=1000 * every // 30, loop=0)
 
 
+def object_gap(handovers, h, mode, mean_gap):
+    if mode == "mean":
+        return mean_gap
+    return policy.grasp_offset([x for x in handovers if x["object"] == h["object"] and x["take"] != h["take"]])
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default="data")
@@ -172,33 +186,56 @@ def main():
     ap.add_argument("--menagerie", default="mujoco_menagerie")
     ap.add_argument("--out", default="results")
     ap.add_argument("--seeds", type=int, nargs="+", default=policy.SEEDS)
+    ap.add_argument("--gap", choices=["mean", "other_take"], default="other_take",
+                    help="hand-to-hand gap: training mean, or measured on another take with the same object")
     ap.add_argument("--gif", nargs="*", default=[], help="TAKE:CARD handovers to render, e.g. B3:5")
     ap.add_argument("--media", default="media")
+    ap.add_argument("--render-only", action="store_true", help="skip the evaluation, only render --gif (first seed)")
     args = ap.parse_args()
 
+    torch.set_num_threads(4)
     handovers = load(args.data, args.sheet)
     train_set, test_set = split(handovers, "main")
     horizon = round(ev.HORIZON_S * handovers[0]["fps"])
-    offset = policy.grasp_offset(train_set)
+    mean_gap = policy.grasp_offset(train_set)
+    gaps = {(h["take"], h["card"]): object_gap(handovers, h, args.gap, mean_gap) for h in test_set}
+    sims = {}
 
-    def human_path(h, t):
-        return h["receiver"][min(t + 3, len(h["receiver"]) - 1)] - offset
+    def setup(controllers, h):
+        gap = gaps[(h["take"], h["card"])]
+        for controller in controllers.values():
+            if isinstance(controller, policy.Chase):
+                controller.offset = gap
+        key = tuple(np.round(gap, 6))
+        if key not in sims:
+            sims[key] = Sim(build_model(args.menagerie, gap))
+        return sims[key], gap
 
-    sim = Sim(build_model(args.menagerie, offset))
     rows, first = [], None
-    for seed in args.seeds:
+    for seed in args.seeds[:1] if args.render_only else args.seeds:
         controllers = policy.build_controllers(train_set, seed, horizon)
-        controllers["human_path"] = policy.Chase(human_path, offset, 8)
+        follow = policy.Chase(None, mean_gap, 8)
+        follow.target = lambda h, t, c=follow: h["receiver"][min(t + 3, len(h["receiver"]) - 1)] - c.offset
+        controllers["human_path"] = follow
         first = first or controllers
+        if args.render_only:
+            break
         for h in test_set:
+            sim, gap = setup(controllers, h)
             for name, controller in controllers.items():
-                result, _ = run(sim, controller, h, offset)
-                rows.append(dict(take=h["take"], card=h["card"], method=name, seed=seed, **result))
-    Path(args.out).mkdir(exist_ok=True)
-    ev.write_csv(rows, Path(args.out) / "sim.csv")
+                result, _ = run(sim, controller, h, gap)
+                rows.append(dict(take=h["take"], card=h["card"], method=name, seed=seed, gap=args.gap, **result))
+    if not args.render_only:
+        report(rows, first, args, len(test_set))
+    render(args, first, test_set, setup)
 
-    print(f"Panda receiving from replayed human hands: {len(test_set)} test handovers (A3, B3), "
-          f"seeds {args.seeds}")
+
+def report(rows, first, args, n_test):
+    Path(args.out).mkdir(exist_ok=True)
+    ev.write_csv(rows, Path(args.out) / f"sim_{args.gap}_gap.csv")
+
+    print(f"Panda receiving from replayed human hands: {n_test} test handovers (A3, B3), "
+          f"seeds {args.seeds}, hand-to-hand gap: {args.gap}")
     print(f"{'method':24s}{'success':>9s}{'':17s}{'grasp - contact s':>19s}{'path length m':>15s}{'rms jerk m/s3':>15s}")
     for name in first:
         sel = [r for r in rows if r["method"] == name]
@@ -208,15 +245,18 @@ def main():
               f"{np.mean([r['grasp_minus_contact_s'] for r in ok]) if ok else np.nan:+19.2f}"
               f"{np.mean([r['path_length_m'] for r in sel]):15.2f}{np.mean([r['rms_jerk'] for r in sel]):15.1f}")
 
+
+def render(args, first, test_set, setup):
     if args.gif:
         Path(args.media).mkdir(exist_ok=True)
-        renderer = mujoco.Renderer(sim.m, 240, 320)
         for spec in args.gif:
             take, card = spec.split(":")
             h = next(x for x in test_set if x["take"] == take and x["card"] == int(card))
+            sim, gap = setup(first, h)
+            renderer = mujoco.Renderer(sim.m, 240, 320)
             panels = []
             for name in GIF_METHODS:
-                result, frames = run(sim, first[name], h, offset, renderer)
+                result, frames = run(sim, first[name], h, gap, renderer)
                 status = f"grasp {result['grasp_minus_contact_s']:+.2f} s vs human" if result["success"] else "no grasp"
                 panels.append([label(f, f"{name}: {status}") for f in frames])
             grid = [np.vstack([np.hstack(p[:2]), np.hstack(p[2:])]) for p in zip(*panels)]

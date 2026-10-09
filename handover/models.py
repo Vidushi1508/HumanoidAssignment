@@ -2,6 +2,10 @@ import numpy as np
 import torch
 from torch import nn
 
+DEVICE = "cuda" if torch.cuda.is_available() else "cpu"
+torch.backends.cudnn.deterministic = True
+torch.backends.cudnn.benchmark = False
+
 VEL_WINDOW = 3
 KALMAN_ACC_STD = 3.0
 KALMAN_MEAS_STD = 0.01
@@ -97,16 +101,17 @@ class WorldModel(nn.Module):
         return traj, point, ttc
 
 
-def policy_features(giver, receiver, fps):
+def policy_features(giver, receiver, fps, target=None):
     gv = np.vstack([np.zeros((1, 2)), np.diff(giver, axis=0)]) * fps
     rv = np.vstack([np.zeros((1, 2)), np.diff(receiver, axis=0)]) * fps
-    return np.hstack([giver, gv, receiver, rv]).astype(np.float32)
+    parts = [giver, gv, receiver, rv] + ([] if target is None else [target - receiver])
+    return np.hstack(parts).astype(np.float32)
 
 
 class Policy(nn.Module):
-    def __init__(self, hidden=64):
+    def __init__(self, hidden=64, inputs=8):
         super().__init__()
-        self.gru = nn.GRU(8, hidden, batch_first=True)
+        self.gru = nn.GRU(inputs, hidden, batch_first=True)
         self.head = nn.Linear(hidden, 3)
 
     def forward(self, x, state=None):

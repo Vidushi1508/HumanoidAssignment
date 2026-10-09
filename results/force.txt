@@ -1,0 +1,13 @@
+/mnt/d/Humanoid/assignment/handover/force.py:278: RuntimeWarning: Mean of empty slice
+  cells += [f"{np.nanmean([r[k] for r in sel]):28.2f}" for k in means]
+Panda receiving with touch and weight sensing (world model + controller), 20 test handovers x 5 seeds
+method                                     success       grasp_minus_contact_s weight_felt_after_release_s                  peak_tug_n
+retract_after_grasp                            25%                        0.64                         nan                        4.62
+wait_for_weight                                29%                        0.64                        0.13                        2.28
+Panda giving (retargeted robot-role giver path), 20 test handovers; predicted_hold over 5 seeds
+method                                 transferred                     dropped  released_before_human_grip       release_minus_human_s                  peak_tug_n
+at_contact                                    100%                          0%                         75%                       -0.84                        0.68
+mean_hold                                     100%                          0%                          0%                        0.10                        7.37
+predicted_hold                                100%                          0%                          0%                        0.07                        7.36
+weight_share                                   35%                          5%                         10%                       -0.03                        9.93
+pull                                           80%                          5%                         10%                        0.18                        6.04

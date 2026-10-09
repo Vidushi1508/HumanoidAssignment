@@ -8,7 +8,7 @@ import torch
 from handover import evaluate as ev
 from handover import train as world
 from handover.dataset import SPLITS, load, split
-from handover.models import Policy, policy_features
+from handover.models import DEVICE, Policy, features, policy_features
 
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -31,32 +31,35 @@ def grasp_offset(train_set):
     return np.mean([h["receiver"][h["contact"]] - h["giver"][h["contact"]] for h in train_set], axis=0)
 
 
-def train_policy(train_set, seed, noise=False):
+def train_policy(train_set, seed, noise=False, target=None):
     torch.manual_seed(seed)
     T = max(len(h["giver"]) for h in train_set)
-    X = np.zeros((len(train_set), T, 8), np.float32)
+    inputs = 8 if target is None else 10
+    X = np.zeros((len(train_set), T, inputs), np.float32)
     V = np.zeros((len(train_set), T, 2), np.float32)
     G = np.zeros((len(train_set), T), np.float32)
     MV = np.zeros((len(train_set), T), bool)
     MG = np.zeros((len(train_set), T), bool)
     for i, h in enumerate(train_set):
         n = len(h["giver"])
-        X[i, :n] = policy_features(h["giver_raw"], h["receiver_raw"], h["fps"])
+        X[i, :n] = policy_features(h["giver_raw"], h["receiver_raw"], h["fps"], None if target is None else target(h))
         V[i, :n - 1] = np.diff(h["receiver"], axis=0) * h["fps"]
         G[i, h["contact"]:n] = 1
         MV[i, :h["contact"]] = True
         MG[i, :n] = True
-    X, V, G, MV, MG = (torch.from_numpy(a) for a in (X, V, G, MV, MG))
+    X, V, G, MV, MG = (torch.from_numpy(a).to(DEVICE) for a in (X, V, G, MV, MG))
 
-    model = Policy(HIDDEN)
+    model = Policy(HIDDEN, inputs).to(DEVICE)
     opt = torch.optim.Adam(model.parameters(), lr=LR, weight_decay=WEIGHT_DECAY)
     for _ in range(EPOCHS):
         x, v = X, V
         if noise:
-            drift = torch.cumsum(torch.randn(V.shape) * NOISE_STEP, dim=1)
+            drift = torch.cumsum(torch.randn(V.shape, device=DEVICE) * NOISE_STEP, dim=1)
             x = X.clone()
             x[..., 4:6] += drift
             x[..., 6:8] += torch.diff(drift, dim=1, prepend=torch.zeros_like(drift[:, :1])) * train_set[0]["fps"]
+            if target is not None:
+                x[..., 8:10] -= drift
             v = V - CORRECTION_GAIN * drift
         vel, logit, _ = model(x)
         loss = (((vel - v) ** 2).sum(-1)[MV].mean()
@@ -64,7 +67,7 @@ def train_policy(train_set, seed, noise=False):
         opt.zero_grad()
         loss.backward()
         opt.step()
-    return model.eval()
+    return model.cpu().eval()
 
 
 def limit(v):
@@ -89,8 +92,8 @@ class Chase:
 
 
 class Learned:
-    def __init__(self, model):
-        self.model = model
+    def __init__(self, model, target=None):
+        self.model, self.target = model, target
 
     def reset(self, h):
         self.state, self.prev = None, None
@@ -98,7 +101,10 @@ class Learned:
     def step(self, h, t, pos):
         fps, giver = h["fps"], h["giver_raw"]
         prev = pos if self.prev is None else self.prev
-        x = np.r_[giver[t], (giver[t] - giver[max(t - 1, 0)]) * fps, pos, (pos - prev) * fps].astype(np.float32)
+        x = np.r_[giver[t], (giver[t] - giver[max(t - 1, 0)]) * fps, pos, (pos - prev) * fps]
+        if self.target is not None:
+            x = np.r_[x, self.target(h, t) - pos]
+        x = x.astype(np.float32)
         with torch.no_grad():
             vel, logit, self.state = self.model(torch.from_numpy(x)[None, None], self.state)
         self.prev = pos.copy()
@@ -141,16 +147,26 @@ def best_gain(train_set, target, offset):
 
 def build_controllers(train_set, seed, horizon):
     offset = grasp_offset(train_set)
-    predict = world.predictor(world.train(train_set, seed, horizon))
+    world_model = world.train(train_set, seed, horizon)
+    predict = world.predictor(world_model)
 
     def predicted_point(h, t):
         return predict(h, t)[1]
+
+    def grasp_target(h, t):
+        return predicted_point(h, t) + offset
+
+    def grasp_targets(h):
+        with torch.no_grad():
+            point = world_model(torch.from_numpy(features(h, len(h["giver"]) - 1))[None])[1][0].numpy()
+        return h["giver_raw"] + point + offset
 
     return {
         "reactive": Chase(reactive, offset, best_gain(train_set, reactive, offset)),
         "world_model_target": Chase(predicted_point, offset, best_gain(train_set, predicted_point, offset)),
         "learned_policy": Learned(train_policy(train_set, seed)),
         "learned_policy_noise": Learned(train_policy(train_set, seed, noise=True)),
+        "learned_policy_wm": Learned(train_policy(train_set, seed, target=grasp_targets), grasp_target),
     }
 
 
@@ -196,7 +212,8 @@ def plot(test_set, paths, out):
                 for take, height in [("A3", "low"), ("A3", "high"), ("B3", "mid"), ("B3", "high")]]
     styles = [("human", "k", "human receiver"), ("reactive", "C0", "reactive"),
               ("world_model_target", "C2", "world model + controller"), ("learned_policy", "C3", "learned policy"),
-              ("learned_policy_noise", "C1", "learned policy, noise-trained")]
+              ("learned_policy_noise", "C1", "learned policy, noise-trained"),
+              ("learned_policy_wm", "C4", "learned policy + world model input")]
     fig, axes = plt.subplots(2, len(examples), figsize=(4 * len(examples), 7))
     for col, h in enumerate(examples):
         t = (np.arange(len(h["giver"])) - h["contact"]) / h["fps"]

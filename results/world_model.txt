@@ -5,20 +5,20 @@ handover point error (cm), mean       25% seen    50% seen    75% seen
   const_velocity                          16.3        18.8         6.5
   kalman                                  14.6        18.3         7.3
   min_jerk                               122.6        18.1         6.6
-  gru                                      8.6         7.5         6.5
+  gru                                      8.2         7.2         6.3
 time-to-contact error (s), mean       25% seen    50% seen    75% seen
   mean                                    0.37        0.25        0.13
   const_velocity                          0.37        0.25        0.13
   kalman                                  0.37        0.25        0.13
   min_jerk                                1.01        0.35        0.22
-  gru                                     0.45        0.28        0.25
+  gru                                     0.47        0.33        0.27
 next 0.5 s of the giver's hand, mean error (cm) during the reach
   stay                                     9.4
   const_velocity                           5.9
   kalman                                   6.3
   min_jerk                                 7.6
-  gru                                      3.5
-  gru handover point error at 50% seen, per seed: 6.6 7.7 6.6 7.7 8.9 cm
+  gru                                      3.3
+  gru handover point error at 50% seen, per seed: 9.0 6.8 6.9 6.8 6.4 cm
 == split: cross_person (test B1, B2, B3); gru = mean over 5 seeds
 handover point error (cm), mean       25% seen    50% seen    75% seen
   stay                                    23.4        14.4         6.6
@@ -26,17 +26,17 @@ handover point error (cm), mean       25% seen    50% seen    75% seen
   const_velocity                          14.1        13.1         4.9
   kalman                                  13.4        14.1         5.4
   min_jerk                                98.9        14.3         7.0
-  gru                                      7.2         7.1         6.0
+  gru                                      7.0         6.7         5.0
 time-to-contact error (s), mean       25% seen    50% seen    75% seen
   mean                                    0.37        0.25        0.12
   const_velocity                          0.37        0.25        0.12
   kalman                                  0.37        0.25        0.12
   min_jerk                                1.07        0.48        0.21
-  gru                                     0.46        0.28        0.14
+  gru                                     0.51        0.36        0.17
 next 0.5 s of the giver's hand, mean error (cm) during the reach
   stay                                     8.1
   const_velocity                           5.1
   kalman                                   5.4
   min_jerk                                 7.2
-  gru                                      3.1
-  gru handover point error at 50% seen, per seed: 7.3 7.4 6.5 7.8 6.7 cm
+  gru                                      3.0
+  gru handover point error at 50% seen, per seed: 6.7 6.3 6.5 7.5 6.4 cm

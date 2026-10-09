@@ -33,7 +33,7 @@ def hesitated(row):
     return planned or "hesitation performed" in row["notes"] or "extra hesitation" in row["notes"]
 
 
-def load(work_dir, sheet_path, direction="human_to_robot"):
+def load(work_dir, sheet_path, direction="human_to_robot", tail_s=0.0):
     work_dir = Path(work_dir)
     sheet = {(r["take"], r["card"]): r for r in csv.DictReader(open(sheet_path))}
     handovers = []
@@ -47,7 +47,7 @@ def load(work_dir, sheet_path, direction="human_to_robot"):
                 continue
             onset, contact, release = int(ev["giver_onset"]), int(ev["contact"]), int(ev["release"])
             start = int(ev["start"])
-            end = release + 1
+            end = min(int(ev["end"]), release + 1 + round(tail_s * fps))
             giver, receiver = (HUMAN, ROBOT) if direction == "human_to_robot" else (ROBOT, HUMAN)
             origin = robot_origin(pose, onset, fps)
 
