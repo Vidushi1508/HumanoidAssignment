@@ -8,11 +8,11 @@ Franka Panda in MuJoCo **receive** objects from replayed human hands and **give*
 
 | Recorded handover (tracked) | Same handover, Panda receiving (physical simulation) |
 |---|---|
-| ![tracking](media/tracking_B3_card5.gif) | ![receive b3 card 5](media/receive_B3_card5.gif) |
+| ![tracking](media/tracking_A3_card3.gif) | ![receive a3 card 3](media/receive_A3_card3.gif) |
 
-| Panda receiving (physical simulation) | Panda giving (physical simulation) |
+| Panda receiving, a hesitating giver (physical simulation) | Panda giving (physical simulation) |
 |---|---|
-| ![receive](media/receive_A3_card3.gif) | ![give](media/give_B3_card18.gif) |
+| ![receive b3 card 5](media/receive_B3_card5.gif) | ![give](media/give_B3_card18.gif) |
 
 Examples of successful handovers on the test takes; success rates over all test handovers are below.
 
@@ -73,6 +73,7 @@ python -m handover.force --render-receive B3:5
 python -m handover.force --render-receive A3:3
 python -m handover.force --render-receive B3:11
 python -m handover.force --render-give B3:18 --rule predicted_hold
+python -m handover.force --render-give A3:12 --rule predicted_hold
 ```
 
 All learned results use seeds 0-4; neural networks train on the GPU when available and the runs are
@@ -82,7 +83,7 @@ recordings, which are not in the repo:
 
 ```bash
 python -m handover.track VIDEO data/TAKE_pose.npz --model pose_landmarker_heavy.task
-python -m handover.overlay VIDEO data/TAKE_pose.npz overlay.mp4
+python -m handover.overlay VIDEO data/TAKE_pose.npz overlay.mp4 [--start S --end S]   # media/tracking_A3_card3.gif: A3, 49.97-54.73 s
 python -m handover.segment data/TAKE_pose.npz data/segments/TAKE.csv --sheet data/take_sheet.csv --plot events.png
 python -m handover.calibrate VIDEO data/TAKE_pose.npz data/calib/TAKE.json
 ```
@@ -215,6 +216,11 @@ decide when to open the gripper:
 | **after the predicted hold (GRU, 5 seeds)** | **100 %** | 0 % | 0 % | **-0.01 s** | 6.6 N |
 | weight share below half | 80 % | 0 % | 30 % | -0.49 s | 4.6 N |
 | pull above 3 N | 100 % | 0 % | 10 % | +0.25 s | 7.6 N |
+
+A3 card 12: the Panda gives the box to the other person, releasing 0.03 s after the human giver did in
+the recording (learned hold time):
+
+![give a3 card 12](media/give_A3_card12.gif)
 
 Releasing at first contact lets go before the human has gripped in 9 of 10 handovers (a drop on a real
 person; the replayed hand catches it here). The learned hold time releases within 0.01 s of when the
