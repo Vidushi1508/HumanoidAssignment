@@ -3,14 +3,18 @@
 Two people sit facing each other and pass an object back and forth, filmed side-on with one phone.
 The person in the right chair plays the robot: back on the backrest, only the arm moves, like an arm
 bolted to a table. From 120 recorded handovers I learn a **world model** that predicts where the
-human's hand will meet the robot's, use it to drive a Franka Panda in MuJoCo, and then improve the
-Panda's physical grasp with **reinforcement learning** on the replayed human hands, using touch and
-wrist-force sensing.
+human's hand will meet the robot's, and use it, together with touch and wrist-force sensing, to make a
+Franka Panda in MuJoCo **receive** objects from replayed human hands and **give** them back.
 
 | Recorded handover (tracked) | Same handover, Panda receiving (kinematic simulation) |
 |---|---|
 | ![tracking](media/tracking_B3_card5.gif) | ![sim](media/sim_B3_card5.gif) |
 
+| Panda receiving (physical simulation) | Panda giving (physical simulation) |
+|---|---|
+| ![receive](media/receive_A3_card3.gif) | ![give](media/give_B3_card18.gif) |
+
+Examples of successful handovers on the test takes; success rates over all test handovers are below.
 
 ## The data
 
@@ -45,8 +49,7 @@ on what actually happened, e.g. which hesitations were performed).
 | 6 Release timing | `handover/release.py` | From the robot-role giver's handovers: predict at contact how long the giver keeps holding |
 | 7 Kinematic sim | `handover/sim.py` | Menagerie Panda, damped least-squares IK, replayed human hand holding the object |
 | 8 Physical sim | `handover/force.py` | Box with mass, human grip as a compliant spring, wrist force sensor and finger touch; receiving and giving |
-| 9 RL | `handover/rl.py` | Residual policy on top of the world-model controller, trained with the cross-entropy method on the training handovers |
-| (9b) RL on GPU | `handover/gpu_rl.py` | The same physical episode in MuJoCo MJX (JAX), thousands of episodes in parallel; network policy with evolution strategies (did not beat 9) |
+| 9 RL | `handover/rl.py` | Tracking receiver (follow the box one object length back, slide in when the hand stops moving forward) with a learned residual policy on top (cross-entropy method) |
 
 ## How to run
 
@@ -61,17 +64,15 @@ python -m handover.train         > results/world_model.txt   # GPU: ~1 s per mod
 python -m handover.policy --plot results/policy_examples.png > results/policy.txt
 python -m handover.release       > results/release.txt
 python -m handover.sim --gap mean > results/sim_mean_gap.txt
-python -m handover.sim --gap other_take --gif B3:5 A3:13 > results/sim_other_take_gap.txt
-python -m handover.force         > results/force.txt         # writes results/force_giving_example.png
-python -m handover.rl --reach-reward 0 --push-penalty 0 --return-reward 0.3 \
-                      --out results/rl_initial > results/rl_initial/rl.txt      # stage 1, ~40 min, 16-20 CPU cores
-python -m handover.rl --init results/rl_initial --init-noise 0.5 > results/rl.txt   # stage 2
-python -m handover.rl --summary results/rl_receiving.csv                         # train/test per seed
-python -m handover.rl --render-only --seeds 4 --gif A3:13                       # one GIF per call
-python -m handover.rl --render-only --seeds 4 --gif B3:5
-python -m handover.rl --start results/rl_policy_seed4.npy --seeds 4 --hard --init-noise 0.5 \
-                      --out results/rl_attempts/hard_examples > results/rl_attempts/hard_examples/rl.txt
-python -m handover.gpu_rl --out results/rl_attempts/gpu > results/rl_attempts/gpu/gpu_rl.txt   # GPU, needs "jax[cuda12]"
+python -m handover.sim --gap other_take > results/sim_other_take_gap.txt
+python -m handover.force         > results/force.txt         # physical receiving + giving, force_giving_example.png
+python -m handover.rl            > results/rl.txt            # tracking receiver + RL, ~1.5 h on 16 CPU cores
+python -m handover.rl --summary results/rl_receiving.csv    # success per seed
+# GIFs (one per call):
+python -m handover.sim --gap other_take --render-only --gif B3:5
+python -m handover.force --render-receive A3:3
+python -m handover.force --render-receive B3:11
+python -m handover.force --render-give B3:18 --rule predicted_hold
 ```
 
 All learned results use seeds 0-4; neural networks train on the GPU when available and the runs are
@@ -130,67 +131,64 @@ behaviour cloning 10.9 cm.
 
 ### Kinematic simulation: Panda receiving
 
-Each controller drives the Panda (IK and joint servos) to take the box from a replayed test giver;
-success = the gripper reaches the box and grasps before the giver lets go. 20 test handovers x 5 seeds.
-"Object known" uses the hand-to-hand gap measured on the *other* box take (A3 from B3 and vice versa),
-as if the robot knew how this object is usually held; "average" uses the mug/bottle training gap.
+The human hand is replayed at its real position and speed relative to the robot-role shoulder, which
+sits at the Panda's shoulder. The controllers drive the Panda through IK and its joint servos; the box
+counts as grasped when the gripper is within 5 cm and the controller says grasp. 20 test handovers x
+5 seeds. "Object known" uses the hand-to-hand gap measured on the *other* box take (A3 from B3 and vice
+versa); "average" uses the mug/bottle training gap.
 
 | Controller | Success (average gap) | Success (object known) | Grasp vs human contact | Gripper path |
 |---|---|---|---|---|
-| **world model + controller** | **91 %** (seeds 85-95) | **92 %** (85-100) | +0.18 s | 0.70 m |
-| human receiver's path (reference) | 85 % | 90 % | +0.07 s | 0.50 m |
-| reactive chase | 70 % | 70 % | -0.00 s | 0.92 m |
-| behaviour cloning + world model input | 53 % | 14 % | +0.55 s | 0.75 m |
-| behaviour cloning | 43 % | 22 % | +0.79 s | 0.70 m |
-| behaviour cloning, noise-trained | 37 % | 24 % | +0.60 s | 0.74 m |
+| reactive chase | **100 %** | **95 %** | -0.39 s | 0.57 m |
+| world model + controller | 93 % (seeds 90-100) | 89 % (85-95) | +0.13 s | 0.56 m |
+| human receiver's path (reference) | 85 % | 90 % | +0.06 s | 0.40 m |
+| behaviour cloning + world model input | 52 % | 19 % | +0.35 s | 0.69 m |
+| behaviour cloning | 49 % | 28 % | +0.54 s | 0.62 m |
+| behaviour cloning, noise-trained | 38 % | 26 % | +0.54 s | 0.67 m |
 
-(Timing and path columns: object-known run.) Placing the box where the box was really held helps the
-controllers that aim at the predicted hand plus the object's gap, and hurts the cloned policies, which
-learned hand positions from the mug and bottle: imitating positions does not transfer to a new object.
+(Timing and path: object-known run.) At real human speed the Panda can keep up, so simply chasing the
+hand works in this simplified grasp. An earlier version that scaled human motion up 1.4x to the Panda's
+reach asked the arm to move faster than it can; there the world model clearly beat chasing (88 % vs
+65 %; commit `0c30550`, `results/sim.txt`). Prediction matters when the robot is slower than the human. The cloned policies learned hand
+positions from the mug and bottle and do not transfer to the box.
 
-![far reach](media/sim_A3_card13.gif)
+### Physical simulation: receiving with touch and weight
 
-### Physical simulation: touch, weight and RL
+The box (100 g, weighed) has mass and friction; the Panda squeezes it (30 N); the human's grip is a
+compliant spring that carries the box's weight until the recorded moment they let go; the Panda has a
+wrist force sensor and finger contact. A grasp counts only when the fingers stop on the box. The
+controller approaches, lines up in front of the box and slides in along the gripper axis, closes, and
+then pulls back.
 
-In this simulation the box (100 g) has mass and friction, the Panda squeezes it (30 N), the human's
-grip is a compliant spring that carries the box's weight until the recorded moment they let go, and
-the Panda has a wrist force sensor and finger contact. A grasp only counts if the fingers stopped on the
-box. With hand-written rules (world model approach, then line up and close):
-
-| Rule-based receiving | Success | Weight felt after the human let go | Tug while the human still holds |
-|---|---|---|---|
-| pull back right after the grasp | 25 % | - | 4.6 N |
-| **wait until the weight is felt** | 29 % | **0.13 s** | **2.3 N** |
-
-Waiting to feel the weight halves the tug, and the robot notices the human letting go within 0.13 s.
-
-**RL.** A residual policy on top of the world-model controller (motion correction, when to close,
-when to pull back; inputs include touch, gripper opening and wrist force), trained with the cross-entropy
-method on the 40 training handovers only, 5 seeds, in two stages: (1) from a simple bootstrap with a
-sparse reward (hold +1, drop -1, tug penalty, bonus for bringing the box back); (2) continued from the
-stage-1 policies with less exploration noise and a reward that also asks not to push the box into the
-giver's hand and to get close to it.
-
-| Physical simulation, receiving (5 seeds) | Test success (A3, B3) | Range over seeds | Dropped (test) | Train success |
+| Physical receiving (20 test handovers x 5 seeds) | Success | Grasp vs human contact | Weight felt after the human let go | Tug while the human still holds |
 |---|---|---|---|---|
-| rule-based, wait for the weight | 29 % | - | - | - |
-| bootstrap before RL | 33 % | 25-40 % | 65 % | 66 % |
-| RL, stage 1 | 55 % | 45-70 % | 34 % | 66 % |
-| **RL, stage 2 (continued)** | **67 %** | **60-80 %** | **22 %** | 68 % |
+| world model + controller, pull back right after the grasp | 83 % | +0.45 s | - | 7.8 N |
+| **world model + controller, wait until the weight is felt** | **84 %** | +0.45 s | **0.14 s** | **3.2 N** |
+| reactive chase, wait until the weight is felt | 90 % | -0.25 s | 0.13 s | 6.8 N |
 
-Every seed is as good or better on test after stage 2. For a single policy to deploy I took the seed
-with the best *training* success (a tie at 72 %, broken by mean training reward): stage-2 seed 4, which
-succeeds on **70 %** of the test handovers. The 5-seed mean is the more reliable number: with 20 test
-handovers one standard error is about 11 points.
+Waiting until the weight arrives halves the tug, and the robot notices the human letting go within
+0.14 s. Chasing grabs the box earlier, often mid-reach, and pulls twice as hard; heading for the
+predicted handover point takes it more gently.
 
-RL does not win every handover. A3 card 13: both hold the box, the RL policy grasps 0.37 s sooner;
-B3 card 5 (a hesitation): the bootstrap succeeds and the RL policy does not.
+![receive b3](media/receive_B3_card11.gif)
 
-| A3 card 13 | B3 card 5 |
-|---|---|
-| ![rl a3](media/rl_A3_card13.gif) | ![rl b3](media/rl_B3_card5.gif) |
+### Physical simulation: tracking receiver and RL
 
-Most remaining failures are handovers where the fingertips do not reach the box before the human lets go.
+A second receiver follows the idea of watching the hand rather than predicting it: it tracks the box
+one object length back, slides in when the hand stops moving forward, holds once the fingers have the
+box, and pulls back once the weight is felt. Here the replayed human waits for the robot's grip
+before letting go (as the givers in the recordings were told to), for up to 3 s. A linear residual
+policy on top (motion correction, when to close, when to pull back; 20 sensor inputs including touch,
+wrist force and how long the hand has been held still) was trained with the cross-entropy method on
+the 40 training handovers, with small random shifts of the hand, grip and timing.
+
+| Tracking receiver (5 seeds) | Test success | Train success | Dropped (test) | Box pushed before grasp | Grasp vs contact |
+|---|---|---|---|---|---|
+| **without RL** | **64 %** (seeds 60-65) | 52 % | 1 % | 9.3 cm | +1.05 s |
+| with RL | 36 % (25-50) | 48 % | 11 % | 18.1 cm | +2.06 s |
+
+RL raised its reward but lowered success: because the human waits, grasping late and pushing the box
+cost little, and the policy learned exactly that.
 
 ### When does a giver let go?
 
@@ -203,29 +201,34 @@ holding.
 | mean training hold | 0.16 s | 20 % | **0.15 s** | 47 % |
 | **GRU on the approach** | **0.10 s** | 16 % | 0.18 s | 43 % |
 
-**Giving, physical simulation.** The Panda follows the robot-role giver's recorded path (retargeted)
-and the recorded human receiver takes the box; five ways to decide when to open the gripper:
+### Physical simulation: Panda giving
 
-| Release rule | Transferred | Let go before the human gripped | Release vs the human giver | Tug |
-|---|---|---|---|---|
-| at contact (vision) | 100 % | **75 %** | -0.84 s | 0.7 N |
-| after the mean training hold | 100 % | 0 % | +0.10 s | 7.4 N |
-| after the predicted hold (GRU) | 100 % | 0 % | **+0.07 s** | 7.4 N |
-| weight share below half | 35 % | 10 % | -0.03 s | 9.9 N |
-| pull above 3 N | 80 % | 10 % | +0.18 s | 6.0 N |
+The Panda follows the robot-role giver's recorded path (starting from a ready pose 35 cm in front of
+its shoulder, since the person's resting hand was inside the Panda's footprint); the recorded human
+receiver reaches, grips (from the recorded contact, over 0.2 s) and takes the box away. Five ways to
+decide when to open the gripper:
 
-Releasing at first contact lets go before the human has gripped in three quarters of handovers (a drop
-on a real person; in simulation the replayed hand catches it). Timed release is safe but tugs. Weight
-alone fails with a 100 g object: the 1 N weight change is far smaller than the forces from the arm's own
-motion, which the force trace shows (B3 card 6):
+| Release rule (20 test handovers) | Handed over | Dropped | Let go before the human gripped | Release vs the human giver | Tug |
+|---|---|---|---|---|---|
+| at contact (vision) | 95 % | 5 % | **90 %** | -0.92 s | 0.8 N |
+| after the mean training hold | 100 % | 0 % | 0 % | +0.01 s | 6.8 N |
+| **after the predicted hold (GRU, 5 seeds)** | **100 %** | 0 % | 0 % | **-0.01 s** | 6.6 N |
+| weight share below half | 80 % | 0 % | 30 % | -0.49 s | 4.6 N |
+| pull above 3 N | 100 % | 0 % | 10 % | +0.25 s | 7.6 N |
+
+Releasing at first contact lets go before the human has gripped in 9 of 10 handovers (a drop on a real
+person; the replayed hand catches it here). The learned hold time releases within 0.01 s of when the
+human giver did. Weight alone is a poor cue with a 100 g object: the 1 N weight change is small next to
+the forces from the arm's own motion (B3 card 6):
 
 ![force](results/force_giving_example.png)
 
 ## Design choices
 
 - **Why receiving, and why a world model.** A robot that only reacts to where the hand *is* arrives late
-  (the reactive row). Predicting where the hand is *going* lets it move in parallel, as the human
-  receiver does. The task has no language and the data is small, so a VLA would add size, not ability.
+  when it is slower than the human. Predicting where the hand is *going* lets it move in parallel, as
+  the human receiver does. The task has no language and the data is small, so a VLA would add size, not
+  ability.
 - **A person playing the robot.** The robot-role person's shoulder stays fixed like a robot base, so
   their receiving motion is a demonstration in a robot-like frame.
 - **Segmentation from tracking, not from the cards.** While a card is up, one person or both handover
@@ -240,18 +243,14 @@ motion, which the force trace shows (B3 card 6):
   prediction.
 - **Small models, fixed settings, 5 seeds.** 40 training reaches; a 64-unit GRU (14k parameters);
   hyperparameters fixed in advance, not tuned on the test takes.
-- **Simulation mapping.** Robot-role shoulder -> Panda shoulder; distances x 1.40
-  (0.85 x Panda reach 0.855 m / human arm 0.52 m); the Panda's wrist plays the receiver's wrist;
-  joint speed 2.1 rad/s (Panda limit 2.175).
+- **Simulation mapping.** The robot-role shoulder sits at the Panda's shoulder and the human hand is
+  replayed at its real position and speed (the Panda's arm is longer than a human arm, so every recorded
+  handover point is reachable). The Panda's wrist plays the receiver's wrist. Arm control: damped
+  least-squares IK holding the gripper level and pointing at the human, clamped to the joint limits and
+  to 2.1 rad/s (Panda limit 2.175), with gravity compensation and velocity feed-forward to the servos.
 - **Human-like sensing.** People hand over by sight, touch and the feeling of weight shifting. The
   physical simulation gives the Panda the same: vision of the hand and the object, finger contact, and a
   wrist force sensor. A grasp only counts when the fingers stopped on something.
-- **Residual RL instead of more rules.** The base controller follows the world model and, near the
-  object, steers to it. A linear residual policy (72 weights, 18 sensor inputs: hand and object
-  positions, touch, gripper opening, wrist force) learns a motion correction, when to close and when to
-  pull back, rewarded for holding the box at the end, penalised for drops, tugging and pushing the box
-  into the giver's hand. Trained with the cross-entropy method on the 40 training handovers only, then
-  continued from the trained policies. The final policy is chosen by training success, never by test.
 - **Unknowns kept fixed, not tuned.** The human's grip in simulation (spring 80 N/m, at most 8 N,
   ramping over 0.2 s) and the box mass (100 g, weighed) are assumptions; I did not change them to
   improve results.
@@ -259,38 +258,46 @@ motion, which the force trace shows (B3 card 6):
 ## What worked and what didn't
 
 - **Worked:** the GRU world model roughly halves the handover-point error of every baseline early in the
-  reach and transfers to the other person. Steering to its predicted handover point is the most reliable
-  receiver offline and in kinematic simulation. RL on top of it, continued from its own policies,
-  doubles physical grasp success on the unseen object (33 % -> 67 %).
-- **Behaviour cloning** gives the most human-like path but drifts during the wait, overshoots, and is
-  fragile: with 40 reaches its result changes noticeably between CPU and GPU training. Adding the world
-  model as an input helps on arrival; noise injection (DART-style) did not help.
+  reach and transfers to the other person. With touch and weight sensing the Panda receives the unseen
+  box in 84 % of test handovers, notices the human letting go within 0.14 s, and gives the box back in
+  100 % with a learned release time within 0.01 s of the human giver's.
+- **Prediction vs chasing:** once the simulated human moves at real speed, a fast reactive chase also
+  succeeds (and slightly more often); the world-model controller takes the box more gently. With the
+  human motion scaled up (a robot slower than the human) the world model clearly won.
+- **Behaviour cloning** gives the most human-like path but drifts during the wait, overshoots, does not
+  transfer to a new object, and is fragile: with 40 reaches its result changes noticeably between CPU
+  and GPU training. Adding the world model as an input helps on arrival; noise injection did not help.
+- **RL did not help in the end.** On the earlier, scaled simulation, RL and continued training raised
+  physical grasp success from 33 % to 67 % (commit `0c30550`). After fixing the simulated robot (below),
+  the hand-designed controllers were better than any RL policy: RL on the tracking receiver learned to
+  grasp late and push the box (64 % -> 36 %); a GPU (MuJoCo MJX) network policy and training on failed
+  handovers also lowered success. Each time the reward rose while success fell.
+- **Simulation problems on the way, all on the robot side:** arm sag (gravity compensation); IK
+  instability (joint-speed limit); the replayed hand moving faster than a Panda can (no scaling); the IK
+  asking for angles past a joint limit, which twisted the gripper 4-6 cm off the box (joint-limit clamp);
+  servo lag (velocity feed-forward); the target drifting out of the handover plane; the gripper closing
+  on air (grasp confirmed only when the fingers stop on the box); a giving start pose inside the
+  robot's own body (ready pose).
 - **Time to contact:** the GRU is no better than the training average.
 - **Minimum-jerk fit** is unusable before peak hand speed (the end point is not observable yet).
 - **Release timing** predicted from the approach works for the same people, not across people.
-- **Weight-based release when giving** fails with a 100 g object: the 1 N weight change is the size of
-  the forces from small hand movements during the hold. Humans also use slip and grip pressure, which a
-  wrist sensor does not measure.
-- **Simulation problems on the way:** arm sag (gravity compensation), IK instability from the
-  orientation term (joint-speed limit), target wind-up (limit on how far the target leads the wrist),
-  fingers missing the box (grasp confirmed only when the fingers stop on an object).
+- **Weight-based release when giving** fails with a 100 g object; humans also use slip and grip
+  pressure, which a wrist sensor does not measure.
 - **Speed labels** were followed loosely: "quick" reaches were not faster than "normal".
-- **RL attempts that did not help** (`results/rl_attempts/`): a 32-unit network policy trained with
-  evolution strategies on the GPU (MuJoCo MJX) reached 40 % test success and *lower* training success
-  than its starting point (54 % vs 68 %), because a strong push penalty made it trade grasps for less
-  pushing; training the selected policy mostly on the handovers it failed (half failures, half successes
-  per batch) lowered training success from 72 % to 60 % and was rejected.
 
 ## Limits
 
 - One camera: 2D (forward and up) only; scale is exact in the plane of the stick, a few cm elsewhere.
 - Two people, 120 handovers; results are indicative, especially per condition (7 hesitations in total).
 - "Release" in the video is when the hands separate, slightly after the true moment of letting go.
-- The robot role is a person keeping still; a human arm is not a Panda, and reach is scaled.
-- The simulated human is a replay with an assumed grip model; it cannot react to the robot. How strong
-  and compliant a real grip is cannot be measured from video, and it limits the giving results.
-- The final RL policy was trained on the CPU. MuJoCo MJX runs the same episode on the GPU, but for this
-  small scene on a laptop GPU it was only modestly faster than 16-20 CPU cores.
+- The robot role is a person keeping still; a human arm is not a Panda.
+- The simulated human is a replay with an assumed grip model: in the main physical results it lets go
+  at the recorded time; in the tracking-receiver results it waits up to 3 s for the robot's grip. How
+  strong and compliant a real grip is cannot be measured from video.
+- The kinematic simulation attaches the box once the gripper is within 5 cm; only the physical
+  simulation models the grasp. Rare numerical instabilities of the free box occur in long episodes.
+- Physics runs on the CPU; MuJoCo MJX can run it on a GPU, but for this small scene on a laptop GPU it
+  was only modestly faster than 16-20 CPU cores.
 
 ## Credits
 

@@ -16,7 +16,17 @@ from handover import train as world
 from handover.dataset import load, split
 from handover.models import features
 
-N_OBS = 18
+N_OBS = 20
+OLD_N_OBS = 18
+FORWARD_STOP = 0.1
+SMOOTH_FRAMES = 3
+STOP_FRAMES = 3
+OBJECT_LENGTH_M = 2 * F.BOX_HALF[0]
+JITTER_HAND_M = 0.015
+JITTER_GRIP_M = 0.01
+MAX_WAIT_S = 3.0
+CLOSE_DIST_M = 0.015
+WEIGHT_TIMEOUT_S = 0.5
 N_ACT = 4
 RESIDUAL_SPEED = 0.5
 POPULATION = 48
@@ -67,9 +77,8 @@ def scene_for(menagerie, gap):
     return _scenes[key]
 
 
-def observe(scene, h, t, predicted, gap, wrist, prev_wrist, start_force, closed):
+def observe(scene, h, t, giver, predicted, gap, wrist, prev_wrist, start_force, closed, timing):
     fps, d = h["fps"], scene.d
-    giver = h["giver_raw"]
     g_vel = (giver[t] - giver[max(t - 1, 0)]) * fps
     here = scene.to_human(wrist)
     vel = (here - scene.to_human(prev_wrist)) * fps
@@ -77,12 +86,20 @@ def observe(scene, h, t, predicted, gap, wrist, prev_wrist, start_force, closed)
     to_target = predicted[t] + gap - here
     force = (scene.wrist_force() - start_force)[[0, 2]] / (F.BOX_MASS * F.G)
     return np.r_[giver[t] - here, g_vel, vel, to_box, np.linalg.norm(to_box), to_target, scene.touch() / 10,
-                 (d.qpos[7] + d.qpos[8]) / 0.08, force, float(closed), t >= h["release"], 1.0]
+                 (d.qpos[7] + d.qpos[8]) / 0.08, force, float(closed), np.linalg.norm(g_vel), timing[0], timing[1], 1.0]
+
+
+def widen(old):
+    old = old.reshape(N_ACT, OLD_N_OBS)
+    new = np.zeros((N_ACT, N_OBS))
+    new[:, :OLD_N_OBS - 2] = old[:, :OLD_N_OBS - 2]
+    new[:, -1] = old[:, -1]
+    return new.ravel()
 
 
 def bootstrap():
     params = np.zeros((N_ACT, N_OBS))
-    params[2, 8], params[2, N_OBS - 1] = -1 / F.CLOSE_TOL_M, 1.0
+    params[2, 8], params[2, N_OBS - 1] = -1 / CLOSE_DIST_M, 1.0
     params[3, N_OBS - 1] = -1.0
     return params.ravel()
 
@@ -91,44 +108,74 @@ def act(params, obs):
     return params.reshape(N_ACT, N_OBS) @ obs
 
 
-def episode(params, h, gap, predicted, menagerie, base_gain, renderer=None):
+def episode(params, h, gap, predicted, menagerie, base_gain, renderer=None, jitter=None):
     scene = scene_for(menagerie, gap)
     m, d, fps = scene.m, scene.d, h["fps"]
+    giver, release = h["giver_raw"], h["release"]
+    shift, grip = np.zeros(2), np.zeros(3)
+    if jitter is not None:
+        rng = np.random.default_rng(jitter)
+        shift, grip = rng.normal(0, JITTER_HAND_M, 2), rng.normal(0, JITTER_GRIP_M, 3) * [1, 0, 1]
+    giver, predicted = giver + shift, predicted + shift
+    let_go, gave_up = None, False
     mujoco.mj_resetDataKeyframe(m, d, 0)
     start = scene.to_world(h["receiver_raw"][0])
     q_des = scene.place_arm(start)
     d.ctrl[:7], d.ctrl[7] = q_des, F.S.GRIPPER_OPEN
-    box_from_wrist, _ = S.hand_geometry(gap)
-    giver = h["giver_raw"]
+    box_from_wrist = S.hand_geometry(gap)[0] + grip
     scene.reset_box(scene.to_world(giver[0]) + box_from_wrist)
     mujoco.mj_forward(m, d)
     start_force = scene.wrist_force()
     target, prev_wrist, moving, closed = start.copy(), start.copy(), False, False
     tug, grasp_t, frames, closest, push = 0.0, None, [], np.inf, 0.0
-    for t in range(len(giver)):
-        hand = scene.to_world(giver[t])
+    move_start, still, grip_load = None, 0, 0.0
+    for t in range(release + round(MAX_WAIT_S * fps) + len(giver) - release):
+        if let_go is None and not gave_up and t > h["contact"] + MAX_WAIT_S * fps:
+            gave_up, let_go = True, t
+        idx = min(t, release - 1) if let_go is None else min(release + t - let_go, len(giver) - 1)
+        hand = scene.to_world(giver[idx])
         d.mocap_pos[scene.hand_mocap] = hand
-        level = F.ramp(t, h["release"], fps, rising=False)
+        level = 1.0 if let_go is None or gave_up else F.ramp(t, let_go, fps, rising=False)
         mujoco.mj_forward(m, d)
         wrist = d.site_xpos[scene.site].copy()
-        obs = observe(scene, h, t, predicted, gap, wrist, prev_wrist, start_force, closed)
-        if t < h["release"]:
+        forward = (giver[max(idx - SMOOTH_FRAMES, 0)][0] - giver[idx][0]) * fps / SMOOTH_FRAMES
+        still = still + 1 if move_start is not None and forward < FORWARD_STOP else 0
+        timing = ((t - move_start) / fps if move_start is not None else 0.0, still / fps)
+        obs = observe(scene, h, idx, giver, predicted, gap, wrist, prev_wrist, start_force, closed, timing)
+        if let_go is None:
             closest = min(closest, np.linalg.norm(scene.box_pos() - d.site_xpos[scene.tip]))
         a = act(params, obs)
-        moving = moving or np.linalg.norm(giver[t] - giver[0]) > policy.MOVE_START
-        base = policy.limit(base_gain * (predicted[t] + gap - scene.to_human(wrist))) if moving else np.zeros(2)
-        to_box = (scene.box_pos() - d.site_xpos[scene.tip])[[0, 2]] / S.SCALE
-        if np.linalg.norm(to_box) * S.SCALE < F.SERVO_RADIUS_M:
-            base = policy.limit(SERVO_GAIN * to_box)
+        moving = moving or np.linalg.norm(giver[idx] - giver[0]) > policy.MOVE_START
+        move_start = t if moving and move_start is None else move_start
+        axis = d.site_xmat[scene.tip].reshape(3, 3)[:, 2]
+        miss = scene.box_pos() - d.site_xpos[scene.tip]
+        along = miss @ axis
+        lateral = miss - along * axis
+        hand_vel = (giver[idx] - giver[max(idx - 1, 0)]) * fps
+        stopped = move_start is not None and still >= STOP_FRAMES
+        weight_felt = grasp_t is not None and (scene.wrist_force()[2] - grip_load > F.WEIGHT_SHARE * F.BOX_MASS * F.G
+                                               or t - grasp_t > WEIGHT_TIMEOUT_S * fps)
+        if grasp_t is not None and not weight_felt:
+            step = np.zeros(3)
+        elif grasp_t is not None:
+            step = (start - wrist) * base_gain
+        elif not moving:
+            step = np.zeros(3)
+        elif not stopped or np.linalg.norm(lateral) > F.ALIGN_TOL_M:
+            step = SERVO_GAIN * (lateral + (along - OBJECT_LENGTH_M) * axis) + S.SCALE * np.r_[hand_vel[0], 0, hand_vel[1]]
+        else:
+            step = SERVO_GAIN * miss
+        base = policy.limit(step[[0, 2]] / S.SCALE)
         if a[3] > 0:
             back = (start - wrist)[[0, 2]] / S.SCALE
             base = policy.limit(base_gain * back)
         vel = policy.limit(base + RESIDUAL_SPEED * np.tanh(a[:2]))
-        closed = a[2] > 0
+        closed = a[2] > 0 or grasp_t is not None
         d.ctrl[7] = F.SQUEEZE if closed else S.GRIPPER_OPEN
         held = closed and scene.touch() > F.TOUCH_N and d.qpos[7] + d.qpos[8] > F.MIN_OPENING_M
         if held and grasp_t is None:
-            grasp_t = t
+            grasp_t, grip_load = t, scene.wrist_force()[2]
+            let_go = t if let_go is None else let_go
         if held and level > 0.5:
             tug = max(tug, abs(scene.wrist_force()[0] - start_force[0]))
         if grasp_t is None and level > 0.5:
@@ -140,7 +187,8 @@ def episode(params, h, gap, predicted, menagerie, base_gain, renderer=None):
             renderer.update_scene(d, camera="side")
             frames.append(renderer.render())
     box = scene.box_pos()
-    in_hand = np.linalg.norm(box - d.site_xpos[scene.tip]) < F.HELD_DIST and d.qpos[7] + d.qpos[8] > F.MIN_OPENING_M
+    in_hand = (closed and scene.touch() > F.TOUCH_N and d.qpos[7] + d.qpos[8] > F.MIN_OPENING_M
+               and np.linalg.norm(box - d.site_xpos[scene.tip]) < F.HELD_DIST)
     dropped = box[2] < DROP_Z
     returned = 1 - min(1.0, np.linalg.norm(d.site_xpos[scene.site] - start) / max(np.linalg.norm(hand - start), 1e-6))
     reach = REACH_REWARD * np.clip(1 - closest / F.SERVO_RADIUS_M, 0, 1)
@@ -152,8 +200,8 @@ def episode(params, h, gap, predicted, menagerie, base_gain, renderer=None):
 
 
 def _run(job):
-    params, h, gap, predicted, menagerie, gain = job
-    return episode(params, h, gap, predicted, menagerie, gain)[:2]
+    params, h, gap, predicted, menagerie, gain, *jitter = job
+    return episode(params, h, gap, predicted, menagerie, gain, jitter=jitter[0] if jitter else None)[:2]
 
 
 def random_batches(n, rng):
@@ -172,7 +220,9 @@ def cem(train_set, gaps, preds, menagerie, gain, seed, pool, init, noise_scale, 
     for it in range(ITERATIONS):
         batch = batches()
         candidates = mean + std * rng.standard_normal((POPULATION, mean.size))
-        jobs = [(c, train_set[i], gaps[i], preds[i], menagerie, gain) for c in candidates for i in batch]
+        jitters = rng.integers(2 ** 31, size=len(batch))
+        jobs = [(c, train_set[i], gaps[i], preds[i], menagerie, gain, int(j)) for c in candidates
+                for i, j in zip(batch, jitters)]
         rewards = np.array([r for r, _ in pool.map(_run, jobs)]).reshape(POPULATION, len(batch)).mean(1)
         elite = candidates[np.argsort(rewards)[-ELITES:]]
         mean, std = elite.mean(0), np.maximum(elite.std(0), MIN_STD)
@@ -213,6 +263,7 @@ def main():
     ap.add_argument("--gif", nargs="*", default=[], help="TAKE:CARD test handovers to render (first seed)")
     ap.add_argument("--media", default="media")
     ap.add_argument("--render-only", action="store_true", help="skip training; load saved policies from --out")
+    ap.add_argument("--base-only", action="store_true", help="with --render-only: render only the base controller")
     args = ap.parse_args()
     if args.summary:
         per_seed_table(args.summary)
@@ -241,6 +292,8 @@ def main():
                 start = np.load(Path(args.init) / f"rl_policy_seed{seed}.npy")
             else:
                 start = bootstrap()
+            if start.size == N_ACT * OLD_N_OBS:
+                start = widen(start)
             batches = None
             if args.hard:
                 ok = np.array([info["success"] for _, info in pool.map(
@@ -275,19 +328,24 @@ def render(args, handovers, train_set, test_set, horizon):
     seed = args.seeds[0]
     targets = world_targets(world.train(train_set, seed, horizon), handovers)
     gain = policy.build_controllers(train_set, seed, horizon)["world_model_target"].gain
-    params = np.load(Path(args.out) / f"rl_policy_seed{seed}.npy")
     Path(args.media).mkdir(exist_ok=True)
+    if args.base_only:
+        options, size, prefix = [("Panda receiving", bootstrap())], (360, 480), "receive"
+    else:
+        options = [("bootstrap (before RL)", bootstrap()),
+                   (f"after RL (seed {seed})", np.load(Path(args.out) / f"rl_policy_seed{seed}.npy"))]
+        size, prefix = (240, 320), "rl"
     for spec in args.gif:
         take, card = spec.split(":")
         h = next(x for x in test_set if x["take"] == take and x["card"] == int(card))
         gap = object_gap(handovers, h)
-        renderer = mujoco.Renderer(scene_for(args.menagerie, gap).m, 240, 320)
+        renderer = mujoco.Renderer(scene_for(args.menagerie, gap).m, *size)
         panels = []
-        for name, p in [("bootstrap (before RL)", bootstrap()), (f"after RL + fine-tuning (seed {seed})", params)]:
+        for name, p in options:
             _, info, frames = episode(p, h, gap, targets[(take, int(card))], args.menagerie, gain, renderer)
             status = f"holds box, grasp {info['grasp_minus_contact_s']:+.2f} s" if info["success"] else "box not held"
             panels.append([S.label(f, f"{name}: {status}") for f in frames])
-        S.save_gif([np.hstack(p) for p in zip(*panels)], Path(args.media) / f"rl_{take}_card{card}.gif")
+        S.save_gif([np.hstack(p) for p in zip(*panels)], Path(args.media) / f"{prefix}_{take}_card{card}.gif")
 
 
 if __name__ == "__main__":

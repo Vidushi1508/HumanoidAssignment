@@ -10,14 +10,15 @@ from handover import evaluate as ev
 from handover import policy
 from handover.dataset import load, split
 
-PANDA_REACH_M = 0.855
-HUMAN_ARM_M = 0.52
-SCALE = 0.85 * PANDA_REACH_M / HUMAN_ARM_M
+SCALE = 1.0
 BASE_Z = 0.6
 SUBSTEPS = 16
 IK_DAMPING = 0.1
 MAX_JOINT_STEP = 0.07
-ORIENTATION_WEIGHT = 0.3
+IK_ITERATIONS = 3
+JOINT_MARGIN = 0.05
+SERVO_LAG_S = 0.1
+ORIENTATION_WEIGHT = 1.0
 RETRACT_SPEED = 0.4
 MAX_LEAD_M = 0.1
 FINGER_REACH_M = 0.1034
@@ -88,7 +89,18 @@ class Sim:
         J = np.vstack([jp, ORIENTATION_WEIGHT * jr])[:, :7]
         dq = J.T @ np.linalg.solve(J @ J.T + IK_DAMPING ** 2 * np.eye(6), err)
         dq = dq + 0.1 * (np.eye(7) - np.linalg.pinv(J) @ J) @ (self.home[:7] - q)
-        return q + dq * min(1.0, MAX_JOINT_STEP / np.abs(dq).max())
+        q = q + dq * min(1.0, MAX_JOINT_STEP / np.abs(dq).max())
+        return np.clip(q, self.m.jnt_range[:7, 0] + JOINT_MARGIN, self.m.jnt_range[:7, 1] - JOINT_MARGIN)
+
+    def ik_solve(self, q, target):
+        start = q.copy()
+        for _ in range(IK_ITERATIONS):
+            q = self.ik_step(q, target)
+        step = q - start
+        return start + step * min(1.0, MAX_JOINT_STEP / max(np.abs(step).max(), 1e-12))
+
+    def servo_command(self, q_des, q_prev, fps=30):
+        return q_des + SERVO_LAG_S * (q_des - q_prev) * fps
 
     def place_arm(self, target, iterations=300):
         q = self.home[:7].copy()
@@ -133,9 +145,9 @@ def run(sim, controller, h, offset, renderer=None):
             target = target + (back if np.linalg.norm(back) < step else step * back / np.linalg.norm(back))
         d.mocap_pos[sim.box_mocap] = box
         q_now, v_now = d.qpos.copy(), d.qvel.copy()
-        q_des = sim.ik_step(q_des, target)
+        q_prev, q_des = q_des, sim.ik_solve(q_des, target)
         d.qpos[:], d.qvel[:] = q_now, v_now
-        d.ctrl[:7] = q_des
+        d.ctrl[:7] = sim.servo_command(q_des, q_prev)
         for _ in range(SUBSTEPS):
             mujoco.mj_forward(m, d)
             d.qfrc_applied[:7] = d.qfrc_bias[:7]
@@ -157,7 +169,8 @@ def run(sim, controller, h, offset, renderer=None):
 def lead(target, wrist):
     ahead = target - wrist
     distance = np.linalg.norm(ahead)
-    return target if distance <= MAX_LEAD_M else wrist + ahead * MAX_LEAD_M / distance
+    out = target if distance <= MAX_LEAD_M else wrist + ahead * MAX_LEAD_M / distance
+    return np.array([out[0], target[1], out[2]])
 
 
 def label(frame, text):

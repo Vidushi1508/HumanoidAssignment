@@ -1,8 +1,6 @@
-jax==0.6.2
 matplotlib==3.10.9
 mediapipe==1.1.0
 mujoco==3.15.0
-mujoco-mjx==3.15.0
 numpy==2.2.6
 opencv-contrib-python==5.0.0.93
 pillow==12.3.0

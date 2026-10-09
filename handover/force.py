@@ -36,6 +36,7 @@ CLOSE_TIMEOUT_S = 0.4
 WEIGHT_SHARE = 0.5
 PULL_N = 3.0
 SETTLE_S = 0.5
+READY_FORWARD_M = 0.35
 TAIL_S = 1.0
 HELD_DIST = 0.06
 RECEIVE_MODES = ["retract_after_grasp", "wait_for_weight"]
@@ -109,9 +110,9 @@ class Scene(S.Sim):
 
     def step(self, q_des, target, human_level, human_target):
         q_now, v_now = self.d.qpos.copy(), self.d.qvel.copy()
-        q_des = self.ik_step(q_des, target)
+        q_prev, q_des = q_des, self.ik_solve(q_des, target)
         self.d.qpos[:], self.d.qvel[:] = q_now, v_now
-        self.d.ctrl[:7] = q_des
+        self.d.ctrl[:7] = self.servo_command(q_des, q_prev)
         for _ in range(S.SUBSTEPS):
             mujoco.mj_forward(self.m, self.d)
             self.d.qfrc_applied[:7] = self.d.qfrc_bias[:7]
@@ -203,11 +204,17 @@ def receive(scene, controller, h, gap, mode, renderer=None):
     ), frames, np.array(loads)
 
 
+def ready(scene, xy):
+    p = scene.to_world(xy)
+    p[0] = max(p[0], scene.shoulder[0] + READY_FORWARD_M)
+    return p
+
+
 def give(scene, h, gap, rule, predicted_hold, mean_hold, renderer=None):
     m, d, fps = scene.m, scene.d, h["fps"]
     mujoco.mj_resetDataKeyframe(m, d, 0)
     path = h["giver_raw"]
-    target = scene.to_world(path[0])
+    target = ready(scene, path[0])
     q_des = scene.place_arm(target)
     d.ctrl[:7], d.ctrl[7] = q_des, SQUEEZE
     mujoco.mj_forward(m, d)
@@ -254,7 +261,7 @@ def give(scene, h, gap, rule, predicted_hold, mean_hold, renderer=None):
                 d.ctrl[7] = S.GRIPPER_OPEN
             elif level > 0.5:
                 tug = max(tug, abs(pull))
-        target = scene.to_world(path[t])
+        target = ready(scene, path[t])
         q_des = scene.step(q_des, target, level, human_target if human_target is not None else np.zeros(3))
         if renderer is not None:
             renderer.update_scene(d, camera="side")
@@ -299,6 +306,46 @@ def plot_giving(traces, h, out):
     fig.savefig(out, dpi=80)
 
 
+def render_receive(args):
+    receiving = load(args.data, args.sheet, tail_s=TAIL_S)
+    recv_train, recv_test = split(receiving, "main")
+    horizon = round(ev.HORIZON_S * receiving[0]["fps"])
+    controller = policy.build_controllers(recv_train, args.seeds[0], horizon)["world_model_target"]
+    take, card = args.render_receive.split(":")
+    h = next(x for x in recv_test if x["take"] == take and x["card"] == int(card))
+    gap = policy.grasp_offset([x for x in receiving if x["object"] == h["object"] and x["take"] != h["take"]])
+    controller.offset = gap
+    scene = Scene(build(args.menagerie, gap))
+    renderer = mujoco.Renderer(scene.m, 360, 480)
+    result, frames, _ = receive(scene, controller, h, gap, "wait_for_weight", renderer)
+    status = f"holds box, grasp {result['grasp_minus_contact_s']:+.2f} s vs human" if result["success"] else "box not held"
+    text = f"Panda receiving (world model + touch/weight): {status}"
+    Path(args.media).mkdir(exist_ok=True)
+    S.save_gif([S.label(f, text) for f in frames], Path(args.media) / f"receive_{take}_card{card}.gif")
+    print(text, result)
+
+
+def render_give(args):
+    giving = load(args.data, args.sheet, direction="robot_to_human", tail_s=TAIL_S)
+    give_train, give_test = split(giving, "main")
+    take, card = args.render_give.split(":")
+    i, h = next((i, x) for i, x in enumerate(give_test) if x["take"] == take and x["card"] == int(card))
+    model = rel.train(give_train, args.seeds[0])
+    X, last = rel.batch(give_test)
+    with torch.no_grad():
+        predicted = model(X, last).numpy()[i]
+    mean_hold = np.mean([rel.hold_time(x) for x in give_train])
+    gap = -policy.grasp_offset([x for x in giving if x["object"] == h["object"] and x["take"] != h["take"]])
+    scene = Scene(build(args.menagerie, gap))
+    renderer = mujoco.Renderer(scene.m, 360, 480)
+    result, frames, _ = give(scene, h, gap, args.rule, predicted, mean_hold, renderer)
+    status = "handed over" if result["transferred"] else ("dropped" if result["dropped"] else "not handed over")
+    text = f"Panda giving, release rule '{args.rule}': {status}"
+    Path(args.media).mkdir(exist_ok=True)
+    S.save_gif([S.label(f, text) for f in frames], Path(args.media) / f"give_{take}_card{card}.gif")
+    print(text, result)
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--data", default="data")
@@ -307,8 +354,17 @@ def main():
     ap.add_argument("--out", default="results")
     ap.add_argument("--media", default="media")
     ap.add_argument("--seeds", type=int, nargs="+", default=policy.SEEDS)
-    ap.add_argument("--gif", default="B3:6", help="robot-to-human handover TAKE:CARD to render")
+    ap.add_argument("--gif", default="B3:6", help="robot-to-human handover TAKE:CARD for the force plot")
+    ap.add_argument("--render-give", help="only render a giving GIF for this TAKE:CARD")
+    ap.add_argument("--render-receive", help="only render a receiving GIF for this TAKE:CARD (wait for weight, first seed)")
+    ap.add_argument("--rule", default="pull", choices=GIVE_RULES)
     args = ap.parse_args()
+    if args.render_give:
+        render_give(args)
+        return
+    if args.render_receive:
+        render_receive(args)
+        return
 
     torch.set_num_threads(4)
     receiving = load(args.data, args.sheet, tail_s=TAIL_S)
@@ -320,16 +376,19 @@ def main():
 
     recv_rows = []
     for seed in args.seeds:
-        controller = policy.build_controllers(recv_train, seed, horizon)["world_model_target"]
+        controllers = policy.build_controllers(recv_train, seed, horizon)
         for h in recv_test:
             gap = policy.grasp_offset([x for x in receiving if x["object"] == h["object"] and x["take"] != h["take"]])
-            controller.offset = gap
             scene = Scene(build(args.menagerie, gap))
-            for mode in RECEIVE_MODES:
-                result, _, _ = receive(scene, controller, h, gap, mode)
-                recv_rows.append(dict(take=h["take"], card=h["card"], seed=seed, method=mode, **result))
+            for name in ["world_model_target", "reactive"]:
+                controllers[name].offset = gap
+                modes = RECEIVE_MODES if name == "world_model_target" else ["wait_for_weight"]
+                for mode in modes:
+                    result, _, _ = receive(scene, controllers[name], h, gap, mode)
+                    label = mode if name == "world_model_target" else f"reactive, {mode}"
+                    recv_rows.append(dict(take=h["take"], card=h["card"], seed=seed, method=label, **result))
     ev.write_csv(recv_rows, Path(args.out) / "force_receiving.csv")
-    print(f"Panda receiving with touch and weight sensing (world model + controller), {len(recv_test)} test handovers "
+    print(f"Panda receiving with touch and weight sensing (world model + controller unless marked), {len(recv_test)} test handovers "
           f"x {len(args.seeds)} seeds")
     print(summarise(recv_rows, ["success"], ["grasp_minus_contact_s", "weight_felt_after_release_s", "peak_tug_n"]))
 
