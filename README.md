@@ -6,9 +6,9 @@ bolted to a table. From 120 recorded handovers I learn a **world model** that pr
 human's hand will meet the robot's, and use it, together with touch and wrist-force sensing, to make a
 Franka Panda in MuJoCo **receive** objects from replayed human hands and **give** them back.
 
-| Recorded handover (tracked) | Same handover, Panda receiving (kinematic simulation) |
+| Recorded handover (tracked) | Same handover, Panda receiving (physical simulation) |
 |---|---|
-| ![tracking](media/tracking_B3_card5.gif) | ![sim](media/sim_B3_card5.gif) |
+| ![tracking](media/tracking_B3_card5.gif) | ![receive b3 card 5](media/receive_B3_card5.gif) |
 
 | Panda receiving (physical simulation) | Panda giving (physical simulation) |
 |---|---|
@@ -69,7 +69,7 @@ python -m handover.force         > results/force.txt         # physical receivin
 python -m handover.rl            > results/rl.txt            # tracking receiver + RL, ~1.5 h on 16 CPU cores
 python -m handover.rl --summary results/rl_receiving.csv    # success per seed
 # GIFs (one per call):
-python -m handover.sim --gap other_take --render-only --gif B3:5
+python -m handover.force --render-receive B3:5
 python -m handover.force --render-receive A3:3
 python -m handover.force --render-receive B3:11
 python -m handover.force --render-give B3:18 --rule predicted_hold
