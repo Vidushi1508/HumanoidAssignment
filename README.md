@@ -37,6 +37,8 @@ Examples of successful handovers on the test takes; success rates over all test 
 - **Split, fixed before training.** Train A1, A2, B1, B2 (mug, bottle); test A3, B3 (box, never seen).
   Second split: train on session A, test on session B (each person in a role they never had in training).
 
+Both participants and the card holder agreed to the footage being published.
+
 `data/` holds everything needed to rerun from stage 2: the videos (540p, no audio, metadata removed),
 tracked keypoints, calibration, handover events and the take sheet (`data/take_sheet.csv`, with notes
 on what actually happened, e.g. which hesitations were performed).
@@ -64,19 +66,19 @@ python3 -m venv venv && source venv/bin/activate
 pip install -r requirements.txt          # torch with CUDA if available; everything also runs on CPU
 git clone --depth 1 https://github.com/google-deepmind/mujoco_menagerie.git
 
-# quick path, minutes on a CPU
-python -m handover.dataset                                   # results/reaches.png
-python -m handover.evaluate      > results/baselines.txt
-python -m handover.train         > results/world_model.txt
-python -m handover.release       > results/release.txt
+# quick path, about 5 min on a CPU (measured on a 24-core laptop; train ~1 min with a GPU)
+python -m handover.dataset                                   # 1 s, results/reaches.png
+python -m handover.evaluate      > results/baselines.txt     # ~40 s
+python -m handover.train         > results/world_model.txt   # ~3.5 min CPU
+python -m handover.release       > results/release.txt       # ~1 min
 
-# simulation, about 10 min each
+# simulation, roughly 10-20 min each
 python -m handover.policy --plot results/policy_examples.png > results/policy.txt
 python -m handover.sim --gap mean > results/sim_mean_gap.txt
 python -m handover.sim --gap other_take > results/sim_other_take_gap.txt
 python -m handover.force         > results/force.txt         # physical receiving + giving, force_giving_example.png
 
-# optional, about 1.5 h on 16 CPU cores (Appendix)
+# optional, roughly 1.5-2 h on 16 CPU cores (Appendix)
 python -m handover.rl            > results/rl.txt
 python -m handover.rl --summary results/rl_receiving.csv
 
@@ -88,8 +90,8 @@ python -m handover.force --render-give B3:18 --rule predicted_hold
 python -m handover.force --render-give A3:12 --rule predicted_hold
 ```
 
-All learned results use seeds 0-4; neural networks train on the GPU when available and the runs are
-reproducible. Rendering needs an OpenGL context (`MUJOCO_GL=egl` on a Linux GPU machine; under WSL2 I
+All learned results use seeds 0-4; neural networks train on the GPU when available. Runs are
+reproducible on the same hardware; behaviour cloning results differ between CPU and GPU training. Rendering needs an OpenGL context (`MUJOCO_GL=egl` on a Linux GPU machine; under WSL2 I
 used `MUJOCO_GL=glfw MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA`). Stages 1-3 need the original 1080p
 recordings, which are not in the repo:
 
@@ -162,7 +164,7 @@ versa); "average" uses the mug/bottle training gap.
 (Timing and path: object-known run.) At real human speed the Panda can keep up, so simply chasing the
 hand works in this simplified grasp. An earlier version that scaled human motion up 1.4x to the Panda's
 reach asked the arm to move faster than it can; there the world model clearly beat chasing (92 % vs
-70 %; commit `0c30550`, `results/sim_other_take_gap.txt`). Prediction matters when the robot is slower than the human. The cloned policies learned hand
+70 %; `git show 0c30550:results/sim_other_take_gap.txt`). Prediction matters when the robot is slower than the human. The cloned policies learned hand
 positions from the mug and bottle and do not transfer to the box.
 
 ### Physical simulation: receiving with touch and weight
@@ -317,10 +319,11 @@ cost little, and the policy learned exactly that.
 ### What happened with RL and the simulated robot
 
 - **RL did not help in the end.** On the earlier, scaled simulation, RL and continued training raised
-  physical grasp success from 33 % to 67 % (commit `0c30550`, `results/rl_initial/rl.txt` and `results/rl.txt`). After fixing the simulated robot (below),
+  physical grasp success from 33 % to 67 % (`git show 0c30550:results/rl_initial/rl.txt` and `git show 0c30550:results/rl.txt`). After fixing the simulated robot (below),
   the hand-designed controllers were better than any RL policy: RL on the tracking receiver learned to
   grasp late and push the box (64 % -> 36 %); a GPU (MuJoCo MJX) network policy and training on failed
-  handovers also lowered success (commit `0c30550`, `results/rl_attempts/`). Each time the reward rose while success fell.
+  handovers also lowered success (`git show 0c30550:results/rl_attempts/gpu/gpu_rl.txt` and
+  `git show 0c30550:results/rl_attempts/hard_examples/rl.txt`). Each time the reward rose while success fell.
 - **Simulation problems on the way, all on the robot side:** arm sag (gravity compensation); IK
   instability (joint-speed limit); the replayed hand moving faster than a Panda can (no scaling); the IK
   asking for angles past a joint limit, which twisted the gripper 4-6 cm off the box (joint-limit clamp);
